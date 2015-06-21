@@ -85,7 +85,10 @@ def start_hunt(bot, chan, message, conn):
 
 def set_ducktime(chan, conn):
     global game_status
-    game_status[conn.name][chan]['next_duck_time'] = random.randint(int(time()) + 480, int(time()) + 3600)
+    # default: 8 minutes to 1 hr
+    #game_status[conn.name][chan]['next_duck_time'] = random.randint(int(time()) + 480, int(time()) + 3600)
+    # turbo / arcade mode: 2 to 4 minutes
+    game_status[conn.name][chan]['next_duck_time'] = random.randint(int(time()) + 120, int(time()) + 240)
     #game_status[conn.name][chan]['flyaway'] = game_status[conn.name][chan]['next_duck_time'] + 600
     game_status[conn.name][chan]['duck_status'] = 0
     return
@@ -131,8 +134,15 @@ def generate_duck():
     return (dtail, dbody, dnoise)
 
 
+def deploy_duck(network, chan, conn):
+    #deploy a duck to channel
+    game_status[network][chan]['duck_status'] = 1
+    game_status[network][chan]['duck_time'] = time()
+    dtail, dbody, dnoise = generate_duck()
+    conn.message(chan, "{}{}{}".format(dtail, dbody, dnoise))
+
 @hook.periodic(11, initial_interval=11)
-def deploy_duck(message, bot):
+def deploy_duck_auto(message, bot):
     global game_status
     for network in game_status:
         if network not in bot.connections:
@@ -144,12 +154,13 @@ def deploy_duck(message, bot):
             active = game_status[network][chan]['game_on']
             duck_status = game_status[network][chan]['duck_status']
             next_duck = game_status[network][chan]['next_duck_time']
+            #if active == 1 and duck_status == 0 and time() >= (next_duck-60) and time() <= (next_duck-45):
+            #    conn.notice("jnmtx", "get ready to duck")
+            #if active == 1 and duck_status == 0 and time() >= (next_duck-24) and time() <= (next_duck-11):
+            #    conn.notice("jnmtx", "very soon now")
             if active == 1 and duck_status == 0 and next_duck <= time():
                 #deploy a duck to channel
-                game_status[network][chan]['duck_status'] = 1
-                game_status[network][chan]['duck_time'] = time()
-                dtail, dbody, dnoise = generate_duck()
-                conn.message(chan, "{}{}{}".format(dtail, dbody, dnoise))
+                deploy_duck(network, chan, conn)
             # Leave this commented out for now. I haven't decided how to make ducks leave.
             #if active == 1 and duck_status == 1 and game_status[network][chan]['flyaway'] <= int(time()):
             #    conn.message(chan, "The duck flew away.")
@@ -158,6 +169,32 @@ def deploy_duck(message, bot):
             continue
         continue
 
+@hook.command("duckme", permissions=["op", "ignore"], autohelp=False)
+def force_deploy(chan, conn):
+    """Creates a duck on demand."""
+    global game_status
+    if chan in opt_out:
+        return
+    network = conn.name
+    duck_status = game_status[network][chan]['duck_status']
+    if not game_status[network][chan]['game_on']:
+        return "There is no activehunt right now. Use .starthunt to start a game."
+    #deploy a duck to channel
+    deploy_duck(network, chan, conn)
+
+@hook.command("duckstatus", autohelp=False)
+def duck_status(chan, conn):
+    """Checks whether there is a duck close enough to shoot."""
+    global game_status
+    if chan in opt_out:
+        return
+    network = conn.name
+    duck_status = game_status[network][chan]['duck_status']
+    if not game_status[network][chan]['game_on']:
+        return "There is no activehunt right now. Use .starthunt to start a game."
+    if not game_status[network][chan]['duck_status']:
+        return "There is not a duck close enough nearby to shoot or befriend."
+    return "There is a duck close enough nearby to shoot or befriend."
 
 def hit_or_miss(deploy, shoot):
     """This function calculates if the befriend or bang will be successful."""
