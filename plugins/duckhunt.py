@@ -217,24 +217,25 @@ def dbadd_entry(nick, chan, db, conn, shoot, friend):
     db.execute(query)
     db.commit()
 
-def dbupdate(nick, chan, db, conn, shoot, friend):
-    """update a db row"""
-    if shoot and not friend:
-        query = table.update() \
-            .where(table.c.network == conn.name) \
-            .where(table.c.chan == chan.lower()) \
-            .where(table.c.name == nick.lower()) \
-            .values(shot = shoot)
-        db.execute(query)
-        db.commit()
-    elif friend and not shoot:
-        query = table.update() \
-            .where(table.c.network == conn.name) \
-            .where(table.c.chan == chan.lower()) \
-            .where(table.c.name == nick.lower()) \
-            .values(befriend = friend)
-        db.execute(query)
-        db.commit()
+def dbset_bang(nick, chan, db, conn, shoot):
+    """update a db shoot score"""
+    query = table.update() \
+        .where(table.c.network == conn.name) \
+        .where(table.c.chan == chan.lower()) \
+        .where(table.c.name == nick.lower()) \
+        .values(shot = shoot)
+    db.execute(query)
+    db.commit()
+
+def dbset_bef(nick, chan, db, conn, friend):
+    """update a db friend score"""
+    query = table.update() \
+        .where(table.c.network == conn.name) \
+        .where(table.c.chan == chan.lower()) \
+        .where(table.c.name == nick.lower()) \
+        .values(befriend = friend)
+    db.execute(query)
+    db.commit()
 
 @hook.command("bang", autohelp=False)
 def bang(nick, chan, message, db, conn, notice):
@@ -244,11 +245,22 @@ def bang(nick, chan, message, db, conn, notice):
         return
     network = conn.name
     score = ""
+    score = db.execute(select([table.c.shot]) \
+            .where(table.c.network == conn.name) \
+            .where(table.c.chan == chan.lower()) \
+            .where(table.c.name == nick.lower())).fetchone()
     out = ""
     miss = ["WHOOSH! You missed the duck completely!", "Your gun jammed!", "Better luck next time.", "WTF!? Who are you Dick Cheney?" ]
     if not game_status[network][chan]['game_on']:
         return "There is no activehunt right now. Use .starthunt to start a game."
     elif game_status[network][chan]['duck_status'] != 1:
+        if score is not None:
+            score = score[0]
+            score -= 1
+            dbset_bang(nick, chan, db, conn, score)
+        else:
+            score = -1
+            dbadd_entry(nick, chan, db, conn, score, 0)
         if game_status[network][chan]['no_duck_kick'] == 1:
             out = "KICK {} {} There is no duck! What are you shooting at?".format(chan, nick)
             conn.send(out)
@@ -275,14 +287,10 @@ def bang(nick, chan, message, db, conn, notice):
             else:
                 message(out)
         game_status[network][chan]['duck_status'] = 2
-        score = db.execute(select([table.c.shot]) \
-            .where(table.c.network == conn.name) \
-            .where(table.c.chan == chan.lower()) \
-            .where(table.c.name == nick.lower())).fetchone()
-        if score:
+        if score is not None:
             score = score[0]
             score += 1
-            dbupdate(nick, chan, db, conn, score, 0)
+            dbset_bang(nick, chan, db, conn, score)
         else:
             score = 1
             dbadd_entry(nick, chan, db, conn, score, 0)
@@ -300,10 +308,21 @@ def befriend(nick, chan, message, db, conn, notice):
     network = conn.name
     out = ""
     score = ""
+    score = db.execute(select([table.c.befriend]) \
+        .where(table.c.network == conn.name) \
+        .where(table.c.chan == chan.lower()) \
+        .where(table.c.name == nick.lower())).fetchone()
     miss = ["The duck didn't want to be friends, maybe next time.", "Well this is awkward, the duck needs to think about it.", "The duck said no, maybe bribe it with some pizza? Ducks love pizza don't they?", "Who knew ducks could be so picky?"]
     if not game_status[network][chan]['game_on']:
         return "There is no hunt right now. Use .starthunt to start a game."
     elif game_status[network][chan]['duck_status'] != 1:
+        if score is not None:
+            score = score[0]
+            score -= 1
+            dbset_bef(nick, chan, db, conn, score)
+        else:
+            score = -1
+            dbadd_entry(nick, chan, db, conn, 0, score)
         if game_status[network][chan]['no_duck_kick'] == 1:
             out = "KICK {} {} You tried befriending a non-existent duck, that's fucking creepy.".format(chan, nick)
             conn.send(out)
@@ -331,14 +350,10 @@ def befriend(nick, chan, message, db, conn, notice):
                 message(out)
 
         game_status[network][chan]['duck_status'] = 2
-        score = db.execute(select([table.c.befriend]) \
-            .where(table.c.network == conn.name) \
-            .where(table.c.chan == chan.lower()) \
-            .where(table.c.name == nick.lower())).fetchone()
-        if score:
+        if score is not None:
             score = score[0]
             score += 1
-            dbupdate(nick, chan, db, conn, 0, score)
+            dbset_bef(nick, chan, db, conn, score)
         else:
             score = 1
             dbadd_entry(nick, chan, db, conn, 0, score)
@@ -368,8 +383,6 @@ def friends(text, chan, conn, db):
             .order_by(desc(table.c.befriend)))
         if scores:    
             for row in scores:
-                if row[1] == 0:
-                    continue
                 friends[row[0]] += row[1]
         else:
             return "it appears no on has friended any ducks yet."
@@ -381,8 +394,6 @@ def friends(text, chan, conn, db):
             .order_by(desc(table.c.befriend)))
         if scores:
             for row in scores:
-                if row[1] == 0:
-                    continue
                 friends[row[0]] += row[1]
         else:
             return "it appears no on has friended any ducks yet."
@@ -406,8 +417,6 @@ def killers(text, chan, conn, db):
             .order_by(desc(table.c.shot)))
         if scores:
             for row in scores:
-                if row[1] == 0:
-                    continue
                 killers[row[0]] += row[1]
         else:
             return "it appears no on has killed any ducks yet."
@@ -419,8 +428,6 @@ def killers(text, chan, conn, db):
             .order_by(desc(table.c.shot)))
         if scores:
             for row in scores:
-                if row[1] == 0:
-                    continue
                 killers[row[0]] += row[1]
         else:
             return "it appears no on has killed any ducks yet."
