@@ -44,6 +44,7 @@ game_status structure
             'next_duck_time':'integer', 
             'game_started':0|1,
             'no_duck_kick': 0|1,
+            'penalty': 0|1,
             'duck_time': 'float', 
             'shoot_time': 'float'
         }
@@ -80,6 +81,8 @@ def start_hunt(bot, chan, message, conn):
         return "there is already a game running in {}.".format(chan)
     else:
         game_status[conn.name][chan]['game_on'] = 1
+        game_status[conn.name][chan]['no_duck_kick'] = 1
+        game_status[conn.name][chan]['penalty'] = 1
     set_ducktime(chan, conn)
     message("Ducks have been spotted nearby. See how many you can shoot or save. use .bang to shoot or .befriend to save them.", chan)
 
@@ -107,7 +110,7 @@ def stop_hunt(chan, conn):
 
 @hook.command("duckkick")
 def no_duck_kick(text, chan, conn, notice):
-    """If the bot has OP or half-op in the channel you can specify .duckkick enable|disable so that people are kicked for shooting or befriending a non-existent goose. Default is off."""
+    """If the bot has OP or half-op in the channel you can specify .duckkick enable|disable so that people are kicked for shooting or befriending a non-existent goose. Default is on."""
     global game_status
     if chan in opt_out:
         return
@@ -119,6 +122,22 @@ def no_duck_kick(text, chan, conn, notice):
         return "kicking for non-existent ducks has been disabled."
     else:
         notice(no_duck_kick.__doc__)
+        return
+
+@hook.command("penalty", permissions=["op", "ignore"])
+def no_penalty(text, chan, conn, notice):
+    """You can specify .penalty enable|disable so that people are penalized 1 killer/friend point for shooting or befriending a non-existent goose. Default is on."""
+    global game_status
+    if chan in opt_out:
+        return
+    if text.lower() == 'enable':
+        game_status[conn.name][chan]['penalty'] = 1
+        return "users will now be penalized 1 killer/friend point for shooting or befriending non-existent ducks."
+    elif text.lower() == 'disable':
+        game_status[conn.name][chan]['penalty'] = 0
+        return "penalty for non-existent ducks has been disabled."
+    else:
+        notice(no_penalty.__doc__)
         return
 
 def generate_duck():
@@ -254,15 +273,16 @@ def bang(nick, chan, message, db, conn, notice):
     if not game_status[network][chan]['game_on']:
         return "There is no activehunt right now. Use .starthunt to start a game."
     elif game_status[network][chan]['duck_status'] != 1:
-        if score is not None:
-            score = score[0]
-            score -= 1
-            dbset_bang(nick, chan, db, conn, score)
-        else:
-            score = -1
-            dbadd_entry(nick, chan, db, conn, score, 0)
+        if game_status[network][chan]['penalty'] != 0:
+            if score is not None:
+                score = score[0]
+                score -= 1
+                dbset_bang(nick, chan, db, conn, score)
+            else:
+                score = -1
+                dbadd_entry(nick, chan, db, conn, score, 0)
         if game_status[network][chan]['no_duck_kick'] == 1:
-            out = "KICK {} {} There is no duck! What are you shooting at?".format(chan, nick)
+            out = "KICK {} {} :There is no duck! What are you shooting at?".format(chan, nick)
             conn.send(out)
             return
         return "There is no duck. What are you shooting at?"
@@ -316,15 +336,16 @@ def befriend(nick, chan, message, db, conn, notice):
     if not game_status[network][chan]['game_on']:
         return "There is no hunt right now. Use .starthunt to start a game."
     elif game_status[network][chan]['duck_status'] != 1:
-        if score is not None:
-            score = score[0]
-            score -= 1
-            dbset_bef(nick, chan, db, conn, score)
-        else:
-            score = -1
-            dbadd_entry(nick, chan, db, conn, 0, score)
+        if game_status[network][chan]['penalty'] != 0:
+            if score is not None:
+                score = score[0]
+                score -= 1
+                dbset_bef(nick, chan, db, conn, score)
+            else:
+                score = -1
+                dbadd_entry(nick, chan, db, conn, 0, score)
         if game_status[network][chan]['no_duck_kick'] == 1:
-            out = "KICK {} {} You tried befriending a non-existent duck, that's fucking creepy.".format(chan, nick)
+            out = "KICK {} {} :You tried befriending a non-existent duck, that's fucking creepy.".format(chan, nick)
             conn.send(out)
             return
         return "You tried befriending a non-existent duck, that's fucking creepy."
