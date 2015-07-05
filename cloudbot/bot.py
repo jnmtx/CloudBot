@@ -249,9 +249,10 @@ class CloudBot:
                             command_event = CommandEvent(hook=command_hook, text=cmd_match.group(2).strip(),
                                                      triggered_command=command, base_event=event)
                             tasks.append(self.plugin_manager.launch(command_hook, command_event))
-                        else:
-                            event.notice("Possible matches: {}".format(
-                                formatting.get_text_list([command for command, plugin in potential_matches])))
+# Disable "Possible matches" reply so bot can be on channels where other bot has .commands
+#                        else:
+#                            event.notice("Possible matches: {}".format(
+#                                formatting.get_text_list([command for command, plugin in potential_matches])))
 
             # Regex hooks
             for regex, regex_hook in self.plugin_manager.regex_hooks:
